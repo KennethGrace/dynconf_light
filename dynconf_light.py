@@ -1,4 +1,3 @@
-#! C:\Users\Dyntek\AppData\Local\Programs\Python\Python37-32\python.exe
 #
 # DYNCONF LIGHT: Dynamic Configuration
 # Config generator, administrator, and retriever based on Jinja2 templates,
@@ -24,11 +23,13 @@ import threading, copy, datetime, math
 import csv, json
 from optparse import OptionParser
 
-VERSION = '1.6'
+VERSION = '1.6.2'
 """
 VERISON NOTES:
     1.5.1: Stable, dumps to super log, does not save json data. No plugin operation. No object orientation. Utilizes multiprocessing.
     1.6: Dev, dumps to super and device log, dumps json data. Can plugin to expand operation. Object Orientation. Utilizes threading for reduced complexity.
+    1.6.1: Bug for options.mode fixed, and template_filename now not part of implied schema.
+    1.6.2: username and password now not part of implied schema.
 """
 
 def patch_crypto_be_discovery():
@@ -79,6 +80,10 @@ class Session:
                     host_list.append(datum['host'])
                 else:
                     raise SessionError('Atleast two devices have the same host variable. This is not allowed.')
+            if 'password' not in datum:
+                datum['password'] = default_password
+            if 'username' not in datum:
+                datum['username'] = default_username
         #Load Device Objects
         for datum in data:
             device_template = template
@@ -87,21 +92,22 @@ class Session:
                 try:
                     if datum['username'] == '':
                         datum['username'] = default_username
-                except TypeError:
+                except KeyError:
                     datum['username'] = default_username
                 #Password if not defined or empty, then set to default_password
                 try:
                     if datum['password'] == '':
                         datum['password'] = default_password
-                except TypeError:
+                except KeyError:
                     datum['password'] = default_password
                 try:
-                    if datum['template_filename'] != '':
-                        if os.path.exists(datum['template_filename']):
-                            with open(datum['template_filename'], 'r') as f:
-                                device_template = f.read()
-                        else:
-                            raise SessionError('Template filename does not exist for {}'.format(datum['host']))
+                    if 'template_filename' in datum:
+                        if datum['template_filename'] != '':
+                            if os.path.exists(datum['template_filename']):
+                                with open(datum['template_filename'], 'r') as f:
+                                    device_template = f.read()
+                            else:
+                                raise SessionError('Template filename does not exist for {}'.format(datum['host']))
                 except TypeError:
                     pass
                 device = Device(**datum)
@@ -281,7 +287,7 @@ def main(*args, **kwargs):
     optparser.add_option('-d', '--data', dest='data_filename',
                          help='Read variables from a CSV or Json file')
     optparser.add_option('-m', '--mode', dest='mode',
-                         help='Set the mode for device administration (SHOW, CONFIGURE)')
+                         help='Set the mode for device administration (SHOW, CONFIGURE, RENDER)')
     optparser.add_option('-r', '--recure', action='store_true', dest='recure', default=False,
                          help='Recure over all devices till stopped.')
     optparser.add_option('--threads', dest='maxThreads', default=10,
@@ -293,7 +299,8 @@ def main(*args, **kwargs):
         options.data_filename = input('Data Filename [*.json, *.csv]: ')
     while (not options.template_filename) or (not os.path.exists(options.template_filename)):
         options.template_filename = input('Template Filename [*.txt, *.j2]: ')
-    options.mode = options.mode.upper()
+    if options.mode:
+        options.mode = options.mode.upper()
     while (not options.mode) or (options.mode not in ['CONFIGURE','SHOW','RENDER']):
         options.mode = input('Mode [CONFIGURE, SHOW, RENDER]: ').upper()
     if not options.directory:
