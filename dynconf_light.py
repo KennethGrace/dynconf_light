@@ -30,6 +30,7 @@ VERISON NOTES:
     1.6: Dev, dumps to super and device log, dumps json data. Can plugin to expand operation. Object Orientation. Utilizes threading for reduced complexity.
     1.6.1: Bug for options.mode fixed, and template_filename now not part of implied schema.
     1.6.2: username and password now not part of implied schema.
+    1.6.3: Value Error for handling dropped config administrations.
 """
 
 def patch_crypto_be_discovery():
@@ -214,7 +215,7 @@ class Device:
                 self.log['flag'], self.log['description'] = 'ERROR', 'BAD_AUTH'
             except ssh_exception.NetMikoTimeoutException:
                 self.log['flag'], self.log['description'] = 'ERROR', 'TIMEOUT'
-            except ValueError as e:
+            except ValueError:
                 self.log['flag'], self.log['description'] = 'ERROR', 'VALUE'
             except para_ssh_exception.SSHException:
                 self.log['flag'], self.log['description'] = 'ERROR', 'SSH'
@@ -222,22 +223,25 @@ class Device:
                 self.log['flag'], self.log['description'] = 'ERROR', 'REFUSED'
             else:
                 if device:
-                    if mode == 'CONFIGURE':
-                        self.log['output'] = [{'in':self.input , 'out': device.send_config_set(self.input)}]
-                    elif mode == 'SHOW':
-                        t_outs = []
-                        for cmd in self.input.split('\n'):
-                            t_out = {'in':cmd, 'out':device.send_command_expect(cmd)}
-                            t_outs.append(t_out)
-                        self.log['output'] = t_outs
-                    device.disconnect()
-                    self.log['flag'], self.log['description'] = 'PASS', 'ADMINISTERED'
+                    try:
+                        if mode == 'CONFIGURE':
+                            self.log['output'] = [{'in':self.input , 'out': device.send_config_set(self.input)}]
+                        elif mode == 'SHOW':
+                            t_outs = []
+                            for cmd in self.input.split('\n'):
+                                t_out = {'in':cmd, 'out':device.send_command_expect(cmd)}
+                                t_outs.append(t_out)
+                            self.log['output'] = t_outs
+                        device.disconnect()
+                        self.log['flag'], self.log['description'] = 'PASS', 'ADMINISTERED'
+                    except ValueError as e:
+                        self.log['flag'], self.log['description'] = 'ERROR', 'MANUAL_CONFIG_REQUIRED'
             if directory:
                 self.writeLog(directory)
             print('{0}:{1} {2} @ {3}'.format(self.log['flag'], self.log['description'], self.id, self.connectionData['host']))
             super_log.append(self.log)
         else:
-            raise DevceError('Device attempted connetion before any input assignment.')
+            raise DeviceError('Device attempted connetion before any input assignment.')
         return self.log
 
     def formatLog(self):
