@@ -278,21 +278,22 @@ class Device:
 				print('{0}:{1} {2} @ {3}'.format(self.log['flag'], self.log['description'], self.id, self.connectionData['host']))
 				# Basically, in the event that we failed and it WASNT a timeout, then we want to try connecting again via another protocol
 				if self.log['flag'] == 'ERROR':
-					if self.log['description'] != 'TIMEOUT' and self.attempts < 2:
-						old_description = self.log['description']
-						if self.connectionData['device_type'] == 'cisco_ios_telnet':
-							self.connectionData['device_type'] = 'cisco_ios'
-							self.connectionData['port'] = '22'
-							print('\t{} -> Error Occurred on Telnet. Trying SSH.'.format(self.id))
-							self.log = self.connect(mode=mode, directory=directory, super_log=super_log)
-							self.log['description'] += '&'+old_description
-						elif self.connectionData['device_type'] == 'cisco_ios':
-							self.connectionData['device_type'] = 'cisco_ios_telnet'
-							self.connectionData['port'] = '23'
-							print('\t{} -> Error Occurred on SSH. Trying Telnet.'.format(self.id))
-							self.log = self.connect(mode=mode, directory=directory, super_log=super_log)
-							self.log['description'] += '&'+old_description
-					elif self.log['description'] == 'SEND_FAILED':
+					if self.log['description'] != 'SEND_FAILED':
+						if self.log['description'] != 'TIMEOUT' and self.attempts < 2:
+							old_description = self.log['description']
+							if self.connectionData['device_type'] == 'cisco_ios_telnet':
+								self.connectionData['device_type'] = 'cisco_ios'
+								self.connectionData['port'] = '22'
+								print('\t{} -> Error Occurred on Telnet. Trying SSH.'.format(self.id))
+								self.log = self.connect(mode=mode, directory=directory, super_log=super_log)
+								self.log['description'] += '&'+old_description
+							elif self.connectionData['device_type'] == 'cisco_ios':
+								self.connectionData['device_type'] = 'cisco_ios_telnet'
+								self.connectionData['port'] = '23'
+								print('\t{} -> Error Occurred on SSH. Trying Telnet.'.format(self.id))
+								self.log = self.connect(mode=mode, directory=directory, super_log=super_log)
+								self.log['description'] += '&'+old_description
+					else:
 						#In the event that connection timed out during send, we want to try again and again till we pass
 						print('\t{} -> Send Failed. Trying Again.'.format(self.id))
 						self.log = self.connect(mode=mode, directory=directory, super_log=super_log)
