@@ -23,7 +23,7 @@ import threading, copy, datetime, math
 import csv, json
 from optparse import OptionParser
 
-VERSION = '1.6.7'
+VERSION = '1.6.8'
 """
 VERISON NOTES:
 	1.5.1: Stable, dumps to super log, does not save json data. No plugin operation. No object orientation. Utilizes multiprocessing.
@@ -35,6 +35,7 @@ VERISON NOTES:
 	1.6.5: Security and inclusion of summary files.
 	1.6.6: Attempt to clean up, abort, lol.
 	1.6.7: Monkey patch for SSH to Telnet failovers
+	1.6.8: Monkey patch for super-logging and command except failures
 """
 
 def patch_crypto_be_discovery():
@@ -63,7 +64,7 @@ patch_crypto_be_discovery()
 
 class Session:
 	datum_schema = ["host","device_type"]
-	maxThreads = 10
+	maxThreads = 3
 	def __init__(self, data, template, default_username='admin', default_password='Password1', default_secret='Secret1', directory=None, mode='RENDER', **kwargs):
 		self.id = 'session'
 		if 'id' in kwargs.keys():
@@ -262,13 +263,17 @@ class Device:
 								t_out = {'in':cmd, 'out':device.send_command_expect(cmd)}
 								t_outs.append(t_out)
 							self.log['output'] = t_outs
-						device.disconnect()
 						self.log['flag'], self.log['description'] = 'PASS', 'ADMINISTERED'
 					except ValueError:
-						self.log['flag'], self.log['description'] = 'ERROR', 'MANUAL_CONFIG_REQUIRED'
+						self.log['flag'], self.log['description'] = 'ERROR', 'MANUAL_REQUIRED'
+					except IOError:
+						self.log['flag'], self.log['description'] = 'ERROR', 'TIMEOUT_DURING_SEND'
+					finally:
+						device.disconnect()
 			finally:
 				print('{0}:{1} {2} @ {3}'.format(self.log['flag'], self.log['description'], self.id, self.connectionData['host']))
-				if self.log['flag'] == 'ERROR' and self.attempts < 2:
+				# Basically, in the event that we failed and it WASNT a timeout, then we want to try connecting again via another protocol
+				if self.log['flag'] == 'ERROR' and self.log['description'] != 'TIMEOUT' and self.attempts < 2:
 					if self.connectionData['device_type'] == 'cisco_ios_telnet':
 						self.connectionData['device_type'] = 'cisco_ios'
 						self.connectionData['port'] = '22'
@@ -339,7 +344,7 @@ def main(*args, **kwargs):
 	optparser.add_option('-r', '--recure', action='store_true', dest='recure', default=False,
 						 help='Recure over all devices till stopped.')
 	optparser.add_option('--threads', dest='maxThreads', default=10,
-						 help='Set Dynconf program prefrences from an Json file')
+						 help='assign max number of simultaneous threads')
 	optparser.add_option('--output', dest='directory',
 						 help='Set the output directory for program output')
 	(options, args) = optparser.parse_args()
