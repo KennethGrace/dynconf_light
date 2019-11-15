@@ -36,7 +36,7 @@ VERISON NOTES:
 	1.6.6: Attempt to clean up, abort, lol.
 	1.6.7: Monkey patch for SSH to Telnet failovers
 	1.6.8: Monkey patch for super-logging and command except failures
-	1.6.9: KeyboardInterrupt Handling
+	1.6.9: KeyboardInterrupt Handling, SEND_FAILED retries, Retry Logging Append
 """
 
 def patch_crypto_be_discovery():
