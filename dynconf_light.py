@@ -36,6 +36,7 @@ VERISON NOTES:
 	1.6.6: Attempt to clean up, abort, lol.
 	1.6.7: Monkey patch for SSH to Telnet failovers
 	1.6.8: Monkey patch for super-logging and command except failures
+	1.6.9: KeyboardInterrupt Handling
 """
 
 def patch_crypto_be_discovery():
@@ -160,10 +161,13 @@ class Session:
 			if len(batch) > 0:
 				threads.append(threading.Thread(target=Session.__administerBatch, args=(self, batch)))
 			#Start Threads
-			for thread in threads:
-				thread.start()
-			for thread in threads:
-				thread.join()
+			try:
+				for thread in threads:
+					thread.start()
+				for thread in threads:
+					thread.join()
+			except KeyboardInterrupt:
+				print("Waiting for Active Threads to Finish...")
 		else:
 			raise SessionError('A Render Mode Session Can Not Administer')
 
@@ -267,23 +271,31 @@ class Device:
 					except ValueError:
 						self.log['flag'], self.log['description'] = 'ERROR', 'MANUAL_REQUIRED'
 					except IOError:
-						self.log['flag'], self.log['description'] = 'ERROR', 'TIMEOUT_DURING_SEND'
+						self.log['flag'], self.log['description'] = 'ERROR', 'SEND_FAILED'
 					finally:
 						device.disconnect()
 			finally:
 				print('{0}:{1} {2} @ {3}'.format(self.log['flag'], self.log['description'], self.id, self.connectionData['host']))
 				# Basically, in the event that we failed and it WASNT a timeout, then we want to try connecting again via another protocol
-				if self.log['flag'] == 'ERROR' and self.log['description'] != 'TIMEOUT' and self.attempts < 2:
-					if self.connectionData['device_type'] == 'cisco_ios_telnet':
-						self.connectionData['device_type'] = 'cisco_ios'
-						self.connectionData['port'] = '22'
-						print('\t{} -> Error Occurred on Telnet. Trying SSH'.format(self.id))
-						return self.connect(mode=mode, directory=directory, super_log=super_log)
-					elif self.connectionData['device_type'] == 'cisco_ios':
-						self.connectionData['device_type'] = 'cisco_ios_telnet'
-						self.connectionData['port'] = '23'
-						print('\t{} -> Error Occurred on SSH. Trying Telnet'.format(self.id))
-						return self.connect(mode=mode, directory=directory, super_log=super_log)
+				if self.log['flag'] == 'ERROR':
+					if self.log['description'] != 'TIMEOUT' and self.attempts < 2:
+						old_description = self.log['description']
+						if self.connectionData['device_type'] == 'cisco_ios_telnet':
+							self.connectionData['device_type'] = 'cisco_ios'
+							self.connectionData['port'] = '22'
+							print('\t{} -> Error Occurred on Telnet. Trying SSH.'.format(self.id))
+							self.log = self.connect(mode=mode, directory=directory, super_log=super_log)
+							self.log['description'] += '&'+old_description
+						elif self.connectionData['device_type'] == 'cisco_ios':
+							self.connectionData['device_type'] = 'cisco_ios_telnet'
+							self.connectionData['port'] = '23'
+							print('\t{} -> Error Occurred on SSH. Trying Telnet.'.format(self.id))
+							self.log = self.connect(mode=mode, directory=directory, super_log=super_log)
+							self.log['description'] += '&'+old_description
+					elif self.log['description'] == 'SEND_FAILED':
+						#In the event that connection timed out during send, we want to try again and again till we pass
+						print('\t{} -> Send Failed. Trying Again.'.format(self.id))
+						self.log = self.connect(mode=mode, directory=directory, super_log=super_log)
 				if directory:
 					self.writeLog(directory)
 			super_log.append(self.log)
