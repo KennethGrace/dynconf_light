@@ -23,7 +23,7 @@ import threading, copy, datetime, math
 import csv, json
 from optparse import OptionParser
 
-VERSION = '1.6.8'
+VERSION = '1.6.9.2'
 """
 VERISON NOTES:
 	1.5.1: Stable, dumps to super log, does not save json data. No plugin operation. No object orientation. Utilizes multiprocessing.
@@ -264,7 +264,11 @@ class Device:
 							device.enable()
 							t_outs = []
 							for cmd in self.input.split('\n'):
-								t_out = {'in':cmd, 'out':device.send_command_expect(cmd)}
+								try:
+									t_out = {'in':cmd, 'out':device.send_command_expect(cmd)}
+								except IOError:
+									print('{0} Failed to Waiting For Response on \"{1}\"'.format(self.id, cmd))
+									raise
 								t_outs.append(t_out)
 							self.log['output'] = t_outs
 						self.log['flag'], self.log['description'] = 'PASS', 'ADMINISTERED'
@@ -275,7 +279,7 @@ class Device:
 					finally:
 						device.disconnect()
 			finally:
-				print('{0}:{1} {2} @ {3}'.format(self.log['flag'], self.log['description'], self.id, self.connectionData['host']))
+				print('{2} @ {3} - {0}:{1}'.format(self.log['flag'], self.log['description'], self.id, self.connectionData['host']))
 				# Basically, in the event that we failed and it WASNT a timeout, then we want to try connecting again via another protocol
 				if self.log['flag'] == 'ERROR':
 					if self.log['description'] != 'SEND_FAILED':
