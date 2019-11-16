@@ -23,7 +23,7 @@ import threading, copy, datetime, math
 import csv, json
 from optparse import OptionParser
 
-VERSION = '1.6.9.3'
+VERSION = '1.6.10'
 """
 VERISON NOTES:
 	1.5.1: Stable, dumps to super log, does not save json data. No plugin operation. No object orientation. Utilizes multiprocessing.
@@ -37,6 +37,7 @@ VERISON NOTES:
 	1.6.7: Monkey patch for SSH to Telnet failovers
 	1.6.8: Monkey patch for super-logging and command except failures
 	1.6.9: KeyboardInterrupt Handling, SEND_FAILED retries, Retry Logging Append
+	1.6.10: Fist Fuck the device over SSH if he doesn't like my commands
 """
 
 def patch_crypto_be_discovery():
@@ -265,10 +266,9 @@ class Device:
 							t_outs = []
 							cmds = self.input.splitlines()
 							for cmd in cmds:
-								print('{0} - Sending \"{1}\"'.format(self.id, cmd))
 								while True:
 									try:
-										t_out = {'in':cmd, 'out':device.send_command(cmd)}
+										t_out = {'in':cmd, 'out':device.send_command_expect(cmd)}
 									except IOError:
 										print('{0} - Trying Again - \"{1}\"'.format(self.id, cmd))
 									else:
