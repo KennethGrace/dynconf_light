@@ -265,19 +265,19 @@ class Device:
 							t_outs = []
 							cmds = self.input.splitlines()
 							for cmd in cmds:
-								print('{0} - Sending {1}'.format(self.id, cmd))
-								try:
-									t_out = {'in':cmd, 'out':device.send_command(cmd)}
-								except IOError:
-									print('{0} - Failed to Waiting For Prompt on \"{1}\"'.format(self.id, cmd))
-									raise
+								print('{0} - Sending \"{1}\"'.format(self.id, cmd))
+								while True:
+									try:
+										t_out = {'in':cmd, 'out':device.send_command(cmd)}
+									except IOError:
+										print('{0} - Trying Again - \"{1}\"'.format(self.id, cmd))
+									else:
+										break
 								t_outs.append(t_out)
 							self.log['output'] = t_outs
 						self.log['flag'], self.log['description'] = 'PASS', 'ADMINISTERED'
 					except ValueError:
 						self.log['flag'], self.log['description'] = 'ERROR', 'MANUAL_REQUIRED'
-					except IOError:
-						self.log['flag'], self.log['description'] = 'ERROR', 'SEND_FAILED'
 					finally:
 						device.disconnect()
 			finally:
