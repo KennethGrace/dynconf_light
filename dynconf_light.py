@@ -23,7 +23,7 @@ import threading, copy, datetime, math
 import csv, json
 from optparse import OptionParser
 
-VERSION = '1.6.9.2'
+VERSION = '1.6.9.3'
 """
 VERISON NOTES:
 	1.5.1: Stable, dumps to super log, does not save json data. No plugin operation. No object orientation. Utilizes multiprocessing.
@@ -263,11 +263,13 @@ class Device:
 						elif mode == 'SHOW':
 							device.enable()
 							t_outs = []
-							for cmd in self.input.split('\n'):
+							cmds = self.input.splitlines()
+							for cmd in cmds:
+								print('{0} - Sending {1}'.format(self.id, cmd))
 								try:
-									t_out = {'in':cmd, 'out':device.send_command_expect(cmd)}
+									t_out = {'in':cmd, 'out':device.send_command(cmd)}
 								except IOError:
-									print('{0} Failed to Waiting For Response on \"{1}\"'.format(self.id, cmd))
+									print('{0} - Failed to Waiting For Prompt on \"{1}\"'.format(self.id, cmd))
 									raise
 								t_outs.append(t_out)
 							self.log['output'] = t_outs
