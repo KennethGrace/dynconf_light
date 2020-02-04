@@ -11,6 +11,7 @@ import argparse
 import csv
 import json
 import sys
+
 import netmiko
 import yaml
 
@@ -36,9 +37,8 @@ class Environment:
                     data = [row for row in reader]
                 elif filename.endswith('.yaml'):
                     data = yaml.load(f, yaml.FullLoader)
-        except FileNotFoundError:
-            print(f"The specified file \"{filename}\" does not exist!")
-            return None
+        except FileNotFoundError as e:
+            raise DynConfConfigurationError(e)
         return cls(table=data)
 
     def __getitem__(self, item):
@@ -55,9 +55,12 @@ class Device:
     def __init__(self, host: str, device_type: str, username: str = None, password: str = None, **kwargs) -> None:
         self.id = host if 'id' not in kwargs else kwargs['id']
         self.host = host
-        self.username = username
-        self.password = password
         self.device_type = device_type
+        self.port = '22' if 'port' not in kwargs else kwargs['port']
+        self.username = username if username else Device._default_username
+        self.password = password if password else Device._default_password
+        self.secret = kwargs['secret'] if 'secret' in kwargs else None
+        # Establish empty runtime variables
         self.connection: netmiko.ConnectHandler = None
 
     @classmethod
@@ -65,28 +68,55 @@ class Device:
         cls._default_username = username
         cls._default_password = password
 
-    def connect(self):
+    def connect(self) -> netmiko.ConnectHandler:
+        """
+        Given the device params defined at device instantiation, we now attempt to build the netmiko connection.
+
+        :return: Return the netmiko.ConnectHandler object in case it is desired outside the class functionality.
+        """
         params = {
             "host": self.host,
             "device_type": self.device_type,
             "username": self.username,
             "password": self.password
         }
+        # TODO: implement netmiko.ConnectHandler exception handling for the various possible exceptions
         self.connection: netmiko.ConnectHandler = netmiko.ConnectHandler(**params)
+        return self.connection
 
-    def push(self, commands: list):
+    def push(self, commands: list, max_attempts: int = -1) -> list:
+        """
+        Pushes a series of commands to the target device via the pre-established connection.
+
+        :param commands: The required list of commands to issue to the target device connection.
+        :param max_attempts: The max number of retries to issue on io interruption. -1 is infinite.
+        :return: Returns a list of the output from each command issued, in the order of the original list.
+        """
         if self.connection:
+            results = []
             for command in commands:
-                while True:
+                tries = 0
+                while True if max_attempts == -1 else (max_attempts >= tries):
                     try:
-                        self.connection.send_cmd_expect(command)
+                        tries += 1
+                        results.append(self.connection.send_cmd_expect(command))
                     except IOError:
                         print(f"Bad Stream on {self.id} - Trying Again - \"{command}\"")
                     else:
                         break
+            return results
 
     def __repr__(self):
-        return json.dumps(self.__dict__, indent=1)
+        attributes = [f"{k.upper()}: {v}" for k, v in self.__dict__.items()]
+        return "\n".join(attributes)
+
+
+class DynConfRuntimeError(Exception):
+    ...
+
+
+class DynConfConfigurationError(Exception):
+    ...
 
 
 def main() -> int:
@@ -104,11 +134,8 @@ def main() -> int:
     if args.username and args.password:
         Device.set_defaults(username=args.username, password=args.password)
     elif args.username or args.password:
-        print("If username or password is supplied, both must be!")
-        return -1
+        raise DynConfConfigurationError("either username or password is supplied. either both must be or neither")
     env = Environment.from_file(filename=args.filename)
-    if not env:
-        return -1
     print(env)
     return 0
 
