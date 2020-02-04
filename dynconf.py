@@ -21,14 +21,24 @@ class Environment:
         self.devices = [Device(**entry) for entry in table]
 
     @classmethod
-    def from_file(cls, filename: str) -> Environment:
+    def from_file(cls, filename: str) -> (Environment, None):
+        """
+        Defines an Environment around a plain-text data file in csv or yaml format.
+
+        :param filename: The filename and path of a .yaml or .csv file.
+        :return: Returns a new Environment of file existence, and None if failed.
+        """
         data = []
-        with open(filename, 'r') as f:
-            if filename.endswith('.csv'):
-                reader = csv.DictReader(f)
-                data = [row for row in reader]
-            elif filename.endswith('.yaml'):
-                data = yaml.load(f, yaml.FullLoader)
+        try:
+            with open(filename, 'r') as f:
+                if filename.endswith('.csv'):
+                    reader = csv.DictReader(f)
+                    data = [row for row in reader]
+                elif filename.endswith('.yaml'):
+                    data = yaml.load(f, yaml.FullLoader)
+        except FileNotFoundError:
+            print(f"The specified file \"{filename}\" does not exist!")
+            return None
         return cls(table=data)
 
     def __getitem__(self, item):
@@ -48,7 +58,7 @@ class Device:
         self.username = username
         self.password = password
         self.device_type = device_type
-        self.connection = None
+        self.connection: netmiko.ConnectHandler = None
 
     @classmethod
     def set_defaults(cls, username: str, password: str) -> None:
@@ -62,7 +72,18 @@ class Device:
             "username": self.username,
             "password": self.password
         }
-        self.connection = netmiko.ConnectionHandler()
+        self.connection: netmiko.ConnectHandler = netmiko.ConnectHandler(**params)
+
+    def push(self, commands: list):
+        if self.connection:
+            for command in commands:
+                while True:
+                    try:
+                        self.connection.send_cmd_expect(command)
+                    except IOError:
+                        print(f"Bad Stream on {self.id} - Trying Again - \"{command}\"")
+                    else:
+                        break
 
     def __repr__(self):
         return json.dumps(self.__dict__, indent=1)
@@ -85,10 +106,8 @@ def main() -> int:
     elif args.username or args.password:
         print("If username or password is supplied, both must be!")
         return -1
-    try:
-        env = Environment.from_file(filename=args.filename)
-    except FileNotFoundError:
-        print(f"The specified file \"{args.filename}\" does not exist!")
+    env = Environment.from_file(filename=args.filename)
+    if not env:
         return -1
     print(env)
     return 0
