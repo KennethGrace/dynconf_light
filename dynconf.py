@@ -6,19 +6,19 @@
 from __future__ import annotations
 
 __version__ = "0.0.1"
+__author__ = "Kenneth J. Grace"
 
 import argparse
 import csv
 import json
 import sys
-
+import colors
 import netmiko
 import yaml
 
 
 class Environment:
     def __init__(self, table: list) -> None:
-        print(json.dumps(table, indent=1))
         self.devices = [Device(**entry) for entry in table]
 
     @classmethod
@@ -41,11 +41,22 @@ class Environment:
             raise DynConfConfigurationError(e)
         return cls(table=data)
 
+    def record(self, filename: str):
+        """
+        Records this log of this environment to a specified log file.
+        :return: A reference to the file path of the newly created log file
+        """
+        with open(filename, 'w') as f:
+            f.write(str(self))
+        return filename
+
     def __getitem__(self, item):
         return self.devices[item]
 
     def __repr__(self):
-        return '\n'.join([str(d) for d in self.devices])
+        summary = [f"{d.id.upper()}\t{d.log[0]}" for d in self]
+        device_logs = [str(d) for d in self]
+        return "\n".join(summary) + "\n"*2 + "\n".join(device_logs)
 
 
 class Device:
@@ -59,18 +70,23 @@ class Device:
         self.port = '22' if 'port' not in kwargs else kwargs['port']
         self.username = username if username else Device._default_username
         self.password = password if password else Device._default_password
-        self.secret = kwargs['secret'] if 'secret' in kwargs else None
+        self.secret = kwargs['secret'] if 'secret' in kwargs else ''
         # Establish empty runtime variables
+        # connection denotes the netmiko connect handler object used for sending and receiving data
         self.connection: netmiko.ConnectHandler = None
+        # log denotes a list of a series of codes detailing the events during this objects lifetime.
+        self.log = [f"Info: {self.id} Instantiated as {self.host}:{self.port}"]
 
     @classmethod
     def set_defaults(cls, username: str, password: str) -> None:
         cls._default_username = username
         cls._default_password = password
 
-    def connect(self) -> netmiko.ConnectHandler:
+    def connect(self) -> (netmiko.ConnectHandler, None):
         """
         Given the device params defined at device instantiation, we now attempt to build the netmiko connection.
+        In the event of a failure during connection establishment, we will return None and set the log of this device
+        for a failure in whatever exception caused the failure.
 
         :return: Return the netmiko.ConnectHandler object in case it is desired outside the class functionality.
         """
@@ -78,15 +94,26 @@ class Device:
             "host": self.host,
             "device_type": self.device_type,
             "username": self.username,
-            "password": self.password
+            "password": self.password,
+            "port": self.port,
+            "secret": self.secret
         }
-        # TODO: implement netmiko.ConnectHandler exception handling for the various possible exceptions
-        self.connection: netmiko.ConnectHandler = netmiko.ConnectHandler(**params)
+        # TODO: implement netmiko.ConnectHandler exception handling for the various possible exceptions when attempting
+        #  a connection.
+        try:
+            self.connection: netmiko.ConnectHandler = netmiko.ConnectHandler(**params)
+        except netmiko.ssh_exception.NetMikoAuthenticationException:
+            self.log.insert(0, "Error: Authentication")
+            return None
+        except TimeoutError:
+            self.log.insert(0, "Error: Timeout")
+            return None
         return self.connection
 
     def push(self, commands: list, max_attempts: int = -1) -> list:
         """
-        Pushes a series of commands to the target device via the pre-established connection.
+        Pushes a series of commands to the target device via the pre-established connection. In the event a connection
+        has not been established or failed to establish properly we do nothing and return nothing
 
         :param commands: The required list of commands to issue to the target device connection.
         :param max_attempts: The max number of retries to issue on io interruption. -1 is infinite.
@@ -99,16 +126,23 @@ class Device:
                 while True if max_attempts == -1 else (max_attempts >= tries):
                     try:
                         tries += 1
-                        results.append(self.connection.send_cmd_expect(command))
+                        results.append(self.connection.send_command_expect(command))
                     except IOError:
-                        print(f"Bad Stream on {self.id} - Trying Again - \"{command}\"")
+                        self.log.insert(0, f"Warning: IO Failure on \"{command}\" try #{tries}")
+                        print(colors.color(f"Bad Stream on {self.id} - Trying Again - \"{command}\"", fg='red'))
                     else:
+                        self.log.insert(0, f"Info: Success on \"{command}\"")
                         break
             return results
 
     def __repr__(self):
-        attributes = [f"{k.upper()}: {v}" for k, v in self.__dict__.items()]
-        return "\n".join(attributes)
+        """
+        In contrast to the typical use of this function, we are overloading a string representation of the Device object
+        to print the log of this objects history.
+
+        :return: The formatted log of this objects history
+        """
+        return "\n".join([self.id.upper().center(48, "-")] + self.log)
 
 
 class DynConfRuntimeError(Exception):
@@ -136,7 +170,12 @@ def main() -> int:
     elif args.username or args.password:
         raise DynConfConfigurationError("either username or password is supplied. either both must be or neither")
     env = Environment.from_file(filename=args.filename)
+    for dev in env:
+        handler = dev.connect()
+    for dev in env:
+        dev.push(['show cdp nei'])
     print(env)
+    env.record('test.log')
     return 0
 
 
