@@ -10,11 +10,10 @@ __author__ = "Kenneth J. Grace"
 
 import argparse
 import csv
-import json
 import sys
-import colors
 import netmiko
 import yaml
+import jinja2
 
 
 class Environment:
@@ -41,6 +40,10 @@ class Environment:
             raise DynConfConfigurationError(e)
         return cls(table=data)
 
+    def deploy(self):
+        for device in self:
+            device.deploy()
+
     def record(self, filename: str):
         """
         Records this log of this environment to a specified log file.
@@ -62,27 +65,33 @@ class Environment:
 class Device:
     _default_username = "admin"
     _default_password = "Password1"
+    _default_template = "template.j2"
 
-    def __init__(self, host: str, device_type: str, username: str = None, password: str = None, **kwargs) -> None:
+    def __init__(self, host: str, device_type: str, username: str = None, password: str = None, port: str = '22',
+                 secret: str = '', template: str = None, **kwargs) -> None:
         self.id = host if 'id' not in kwargs else kwargs['id']
         self.host = host
         self.device_type = device_type
-        self.port = '22' if 'port' not in kwargs else kwargs['port']
         self.username = username if username else Device._default_username
         self.password = password if password else Device._default_password
-        self.secret = kwargs['secret'] if 'secret' in kwargs else ''
+        self.port = port
+        self.secret = secret
+        self.template = template if template else Device._default_template
+        self.vars = kwargs
         # Establish empty runtime variables
         # connection denotes the netmiko connect handler object used for sending and receiving data
         self.connection: netmiko.ConnectHandler = None
         # log denotes a list of a series of codes detailing the events during this objects lifetime.
-        self.log = [f"Info: {self.id} Instantiated as {self.host}:{self.port}"]
+        self.log = [f"Info: {self.id} Instantiated as \"{self.host}:{self.port}\""]
+        self.log.insert(0, f"Info: Device variables set as \"{self.vars}\"")
 
     @classmethod
-    def set_defaults(cls, username: str, password: str) -> None:
-        cls._default_username = username
-        cls._default_password = password
+    def set_defaults(cls, username: str, password: str, template: str) -> None:
+        cls._default_username = username if username else cls._default_username
+        cls._default_password = password if password else cls._default_password
+        cls._default_template = template if template else cls._default_template
 
-    def connect(self) -> (netmiko.ConnectHandler, None):
+    def connect(self) -> netmiko.ConnectHandler:
         """
         Given the device params defined at device instantiation, we now attempt to build the netmiko connection.
         In the event of a failure during connection establishment, we will return None and set the log of this device
@@ -108,7 +117,26 @@ class Device:
         except TimeoutError:
             self.log.insert(0, "Error: Timeout")
             return None
+        else:
+            self.log.insert(0, "Info: Connection Successful")
         return self.connection
+
+    def deploy(self, max_attempts: int = -1) -> list:
+        """
+        Accepts and renders a Jinja formatted template to a string of deployment code and administers the code to
+        the device.
+
+        :param max_attempts: The max number of retries to issue on io interruption. -1 is infinite.
+        :return: Returns a list of the output from each command issued.
+        """
+        try:
+            with open(self.template, 'r') as f:
+                deployment = jinja2.Environment(loader=jinja2.BaseLoader).from_string(f.read()).render(self.vars)
+        except FileNotFoundError:
+            self.log.insert(0, f"Error: Template file \"{self.template}\" not found")
+        finally:
+            self.log.insert(0, f"Info: Template Successfully Generated")
+            return self.push(commands=deployment.split('\n'), max_attempts=max_attempts)
 
     def push(self, commands: list, max_attempts: int = -1) -> list:
         """
@@ -129,7 +157,7 @@ class Device:
                         results.append(self.connection.send_command_expect(command))
                     except IOError:
                         self.log.insert(0, f"Warning: IO Failure on \"{command}\" try #{tries}")
-                        print(colors.color(f"Bad Stream on {self.id} - Trying Again - \"{command}\"", fg='red'))
+                        print(f"Bad Stream on {self.id} - Trying Again - \"{command}\"")
                     else:
                         self.log.insert(0, f"Info: Success on \"{command}\"")
                         break
@@ -160,20 +188,17 @@ def main() -> int:
     """
     print(f"DynConf: Dynamic Configuration {__version__.upper()}")
     parser = argparse.ArgumentParser(prog="DynConf", description="Dynamic Configuration")
-    parser.add_argument('operation', type=str, help="The operation type to perform")
-    parser.add_argument('filename', type=str, help="Filename for file defining an environment")
-    parser.add_argument('--username', '-u', type=str, help="Username for connections")
-    parser.add_argument('--password', '-p', type=str, help="Password for connections")
+    parser.add_argument('filename', type=str, help="Filename for defining an environment")
+    parser.add_argument('--username', '-u', type=str, help="Default username for connections")
+    parser.add_argument('--password', '-p', type=str, help="Default password for connections")
+    parser.add_argument('--template', '-t', type=str, help="Default template for deployment")
     args = parser.parse_args()
-    if args.username and args.password:
-        Device.set_defaults(username=args.username, password=args.password)
-    elif args.username or args.password:
-        raise DynConfConfigurationError("either username or password is supplied. either both must be or neither")
+    Device.set_defaults(username=args.username, password=args.password, template=args.template)
     env = Environment.from_file(filename=args.filename)
     for dev in env:
-        handler = dev.connect()
+        dev.connect()
     for dev in env:
-        dev.push(['show cdp nei'])
+        dev.deploy()
     print(env)
     env.record('test.log')
     return 0
