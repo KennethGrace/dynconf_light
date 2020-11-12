@@ -1,8 +1,29 @@
 #!/usr/bin/env python3
 #
-# DynConf: Dynamic Configuration
-# An Attempt at Network Automation by Kenneth J. Grace
+# DynConf Light: Dynamic Configuration
 #
+# Copyright (c) 2020 Kenneth J. Grace <kenneth.grace@dyntek.com>
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+# LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+
 from __future__ import annotations
 
 __version__ = "0.0.1"
@@ -12,8 +33,19 @@ import argparse
 import csv
 import sys
 import netmiko
+import paramiko
 import yaml
 import jinja2
+import pathlib
+import enum
+
+
+class Log(enum.IntEnum):
+    DEBUG = 0
+    INFO = 1
+    WARNING = 2
+    ERROR = 3
+    FATAL = 4
 
 
 class Environment:
@@ -21,7 +53,7 @@ class Environment:
         self.devices = [Device(**entry) for entry in table]
 
     @classmethod
-    def from_file(cls, filename: str) -> (Environment, None):
+    def from_file(cls, filename: str) -> Environment:
         """
         Defines an Environment around a plain-text data file in csv or yaml format.
 
@@ -29,20 +61,13 @@ class Environment:
         :return: Returns a new Environment of file existence, and None if failed.
         """
         data = []
-        try:
-            with open(filename, 'r') as f:
-                if filename.endswith('.csv'):
-                    reader = csv.DictReader(f)
-                    data = [row for row in reader]
-                elif filename.endswith('.yaml'):
-                    data = yaml.load(f, yaml.FullLoader)
-        except FileNotFoundError as e:
-            raise DynConfConfigurationError(e)
+        with open(filename, 'r') as f:
+            if filename.endswith('.csv'):
+                reader = csv.DictReader(f)
+                data = [row for row in reader]
+            elif filename.endswith('.yaml'):
+                data = yaml.load(f, yaml.FullLoader)
         return cls(table=data)
-
-    def deploy(self):
-        for device in self:
-            device.deploy()
 
     def record(self, filename: str):
         """
@@ -57,7 +82,7 @@ class Environment:
         return self.devices[item]
 
     def __repr__(self):
-        summary = [f"{d.id.upper()}\t{d.log[0]}" for d in self]
+        summary = [f"{d.id.upper()} -> {d.log[0]}" for d in self]
         device_logs = [str(d) for d in self]
         return "\n".join(summary) + "\n"*2 + "\n".join(device_logs)
 
@@ -91,6 +116,17 @@ class Device:
         cls._default_password = password if password else cls._default_password
         cls._default_template = template if template else cls._default_template
 
+    def log(self, level: int, message: str) -> None:
+        """
+        Adds a log message to the log and prints the log to standard out unless the program was instructed to run in
+        quiet mode.
+
+        :param level:
+        :param message:
+        :return:
+        """
+        # TODO: implement functionality for logging in a better more versatile way than currently
+
     def connect(self) -> netmiko.ConnectHandler:
         """
         Given the device params defined at device instantiation, we now attempt to build the netmiko connection.
@@ -111,7 +147,7 @@ class Device:
         #  a connection.
         try:
             self.connection: netmiko.ConnectHandler = netmiko.ConnectHandler(**params)
-        except netmiko.ssh_exception.NetMikoAuthenticationException:
+        except paramiko.ssh_exception.AuthenticationException:
             self.log.insert(0, "Error: Authentication")
             return None
         except TimeoutError:
@@ -129,14 +165,17 @@ class Device:
         :param max_attempts: The max number of retries to issue on io interruption. -1 is infinite.
         :return: Returns a list of the output from each command issued.
         """
-        try:
-            with open(self.template, 'r') as f:
-                deployment = jinja2.Environment(loader=jinja2.BaseLoader).from_string(f.read()).render(self.vars)
-        except FileNotFoundError:
-            self.log.insert(0, f"Error: Template file \"{self.template}\" not found")
-        finally:
-            self.log.insert(0, f"Info: Template Successfully Generated")
-            return self.push(commands=deployment.split('\n'), max_attempts=max_attempts)
+        if self.connection:
+            try:
+                with open(self.template, 'r') as f:
+                    deployment = jinja2.Environment(loader=jinja2.BaseLoader).from_string(f.read()).render(self.vars)
+            except FileNotFoundError:
+                self.log.insert(0, f"Error: Template file \"{self.template}\" not found")
+            finally:
+                self.log.insert(0, f"Info: Template Successfully Generated")
+                out = self.push(commands=deployment.split('\n'), max_attempts=max_attempts)
+                self.log.insert(0, f"Info: Deployment Successful")
+                return out
 
     def push(self, commands: list, max_attempts: int = -1) -> list:
         """
@@ -173,14 +212,6 @@ class Device:
         return "\n".join([self.id.upper().center(48, "-")] + self.log)
 
 
-class DynConfRuntimeError(Exception):
-    ...
-
-
-class DynConfConfigurationError(Exception):
-    ...
-
-
 def main() -> int:
     """
     When DynConf is called directly this function is called to start the default handling of args for operation
@@ -200,7 +231,7 @@ def main() -> int:
     for dev in env:
         dev.deploy()
     print(env)
-    env.record('test.log')
+    env.record(f"{pathlib.Path(args.filename).stem}.log")
     return 0
 
 

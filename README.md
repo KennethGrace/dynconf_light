@@ -59,6 +59,8 @@ The 'data file' allows for a infinite set of additional variables. All these oth
 ## Templating
 DynConf Light uses Jinja2 as it's only available templating language. You can learn more about Jinja2 [here](https://jinja.palletsprojects.com/en/2.11.x/).
 
+Templates are loaded from the current working directory
+
 ## Authors
 
 * ***Kenneth J Grace*** - *Initial Work* - [KennethGrace](https://github.com/KennethGrace)
