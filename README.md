@@ -13,9 +13,9 @@ To use DynConf Light you're going to need to install a couple of programs and li
 * For Windows, Download Git for Windows at [gitforwindows.org](https://gitforwindows.org/)
 * For Mac and Linux, follow instructions at [git-scm.com](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
 * Install Python 3 from [python.org](https://www.python.org/)
-* Install the Jinja2, Netmiko, and  Python Library via pip
+* Install the Jinja2, Netmiko, and PyYAML Python libraries via pip
 ```
-python -m pip install jinja2 netmiko
+python -m pip install jinja2 netmiko pyyaml
 ```
 
 ### Installation

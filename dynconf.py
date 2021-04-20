@@ -37,15 +37,8 @@ import paramiko
 import yaml
 import jinja2
 import pathlib
-import enum
-
-
-class Log(enum.IntEnum):
-    DEBUG = 0
-    INFO = 1
-    WARNING = 2
-    ERROR = 3
-    FATAL = 4
+import logging
+import getpass
 
 
 class Environment:
@@ -99,6 +92,10 @@ class Device:
         self.device_type = device_type
         self.username = username if username else Device._default_username
         self.password = password if password else Device._default_password
+        if not self.username:
+            raise TypeError("username is NoneType, check defaults")
+        if not self.password:
+            raise TypeError("password is NoneType, check defaults")
         self.port = port
         self.secret = secret
         self.template = template if template else Device._default_template
@@ -220,18 +217,24 @@ def main() -> int:
     print(f"DynConf: Dynamic Configuration {__version__.upper()}")
     parser = argparse.ArgumentParser(prog="DynConf", description="Dynamic Configuration")
     parser.add_argument('filename', type=str, help="Filename for defining an environment")
-    parser.add_argument('--username', '-u', type=str, help="Default username for connections")
-    parser.add_argument('--password', '-p', type=str, help="Default password for connections")
+    parser.add_argument('--username', '-u', type=str, help="Default username for connections", )
     parser.add_argument('--template', '-t', type=str, help="Default template for deployment")
     args = parser.parse_args()
-    Device.set_defaults(username=args.username, password=args.password, template=args.template)
+    # look at me, just assigning possible null values without a care in the world, lol
+    def_username = args.username
+    while not def_username:
+        def_username = input(f'Default Username [{getpass.getuser()}]: ')
+        def_username = def_username if def_username else getpass.getuser()
+        print(def_username)
+    def_password = getpass.getpass(prompt="Default Password: ", stream=sys.stdin)
+    logging.basicConfig(filename=f"{pathlib.Path(args.filename).stem}.log", level=logging.INFO)
+    Device.set_defaults(username=def_username, password="def_password", template=args.template)
     env = Environment.from_file(filename=args.filename)
     for dev in env:
         dev.connect()
     for dev in env:
         dev.deploy()
     print(env)
-    env.record(f"{pathlib.Path(args.filename).stem}.log")
     return 0
 
 
